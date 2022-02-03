@@ -1,9 +1,16 @@
-import { abi as RouterABI } from "@rytell/exchange-contracts/artifacts/contracts/periphery/RytellRouter.sol/RytellRouter.json";
+import { createRequire } from "module"; // Bring in the ability to create the 'require' method
+const require = createRequire(import.meta.url); // construct the require method
+
 import { GraphQLClient } from "graphql-request";
 import Web3 from "web3";
 
 import { gql } from "graphql-request";
 import dotenv from "dotenv";
+import { BigNumber } from "ethers";
+import { MaxUint256 } from "@ethersproject/constants";
+import utils from "./utils.mjs";
+import { ERC20_ABI } from "./constants.js";
+const { getTransactionDeadline } = utils;
 dotenv.config();
 
 // TODO add variable
@@ -46,6 +53,11 @@ const ROUTER_ADDRESS = {
   FUJI: "0xd0f172F6EeEeB2490fAC02dED056C6CBde07127C",
 };
 
+const RADI_STAKING_POOL = {
+  FUJI: "0x6DCF1696755311e80B658d419a45BF7F7a7d7CC6",
+  AVALANCHE: "0x3EE96FD99f38EB26fF1F019B4f68976952ceEa03",
+};
+
 async function swapExactTokensForTokens({
   router,
   web3,
@@ -56,7 +68,7 @@ async function swapExactTokensForTokens({
   amountOutputMin, // in wei
   path, // address[]
   to, // receiver address
-  deadline // timestamp
+  deadline, // timestamp
 }) {
   const swapExactTokensForTokensTx = router.methods.swapExactTokensForTokens(
     amountInput,
@@ -98,7 +110,109 @@ async function swapExactTokensForTokens({
   }
 }
 
+async function letRouterSpendOurTokens({
+  tokenContract,
+  router,
+  web3,
+  networkId,
+  address,
+  privateKey,
+}) {
+  const approveTx = tokenContract.methods.approve(
+    router.options.address,
+    MaxUint256
+  );
+  try {
+    const gas = await approveTx.estimateGas({ from: address });
+    try {
+      const gasPrice = await web3.eth.getGasPrice();
+      const data = approveTx.encodeABI();
+      const nonce = await web3.eth.getTransactionCount(address);
+      const signedTx = await web3.eth.accounts.signTransaction(
+        {
+          to: tokenContract.options.address,
+          data,
+          gas,
+          gasPrice,
+          nonce,
+          chainId: networkId,
+        },
+        privateKey
+      );
+
+      const receipt = await web3.eth.sendSignedTransaction(
+        signedTx.rawTransaction
+      );
+      console.log(receipt, ": RECEIPT");
+      return;
+    } catch (error) {
+      console.log(error, ": ERROR SENDING");
+      throw new Error("ERROR SENDING: APPROVE");
+    }
+  } catch (error) {
+    console.log(error, ": ERROR ESTIMATING");
+    throw new Error("ERROR ESTIMATING: APPROVE");
+  }
+}
+
+async function retryLetRouterSpendOurTokens({
+  tokenContract,
+  router,
+  web3,
+  networkId,
+  address,
+  privateKey,
+}) {
+  try {
+    await letRouterSpendOurTokens({
+      tokenContract,
+      router,
+      web3,
+      networkId,
+      address,
+      privateKey,
+    });
+  } catch (error) {
+    await retryLetRouterSpendOurTokens({
+      tokenContract,
+      router,
+      web3,
+      networkId,
+      address,
+      privateKey,
+    });
+  }
+}
+
+async function approvePathContracts({
+  router,
+  web3,
+  networkId,
+  address,
+  privateKey,
+  tokenContracts,
+}) {
+  await Promise.all(
+    tokenContracts.map(async (tokenContract) => {
+      await retryLetRouterSpendOurTokens({
+        tokenContract,
+        router,
+        web3,
+        networkId,
+        address,
+        privateKey,
+      });
+
+      return {};
+    })
+  );
+}
+
 async function main() {
+  const {
+    abi: RouterABI,
+  } = require("@rytell/exchange-contracts/artifacts/contracts/periphery/RytellRouter.sol/RytellRouter.json");
+
   const address = process.env.ADDRESS;
   const privateKey = process.env.PRIVATE_KEY;
 
@@ -120,10 +234,32 @@ async function main() {
     ROUTER_ADDRESS[process.env.NETWORK]
   );
 
+  const amountInput = BigNumber.from(1);
+  const amountOutputMin = BigNumber.from(0);
+  const deadline = getTransactionDeadline();
+  const to = RADI_STAKING_POOL[process.env.NETWORK];
+  const path = [
+    "0xA84b0D75cF0cb4515abcC7737544075C02A851Bd",
+    "0x600615234c0a427834A4344D10fEaCA374B2dfCB",
+  ];
+
+  const tokenContracts = path.map(
+    (tokenAddress) => new web3.eth.Contract(ERC20_ABI, tokenAddress)
+  );
+
+  await approvePathContracts({
+    tokenContracts,
+    web3,
+    networkId,
+    address,
+    privateKey,
+    router,
+  });
+
   // TODO trigger swap for testing
   // swapExactAVAXForTokens
   // swapExactTokensForTokens
-  swapExactTokensForTokens({
+  await swapExactTokensForTokens({
     router,
     web3,
     networkId,
@@ -133,8 +269,8 @@ async function main() {
     amountOutputMin, // in wei - no esta definido aun
     path, // address[] - no esta definido aun
     to, // receiver address - no esta definido aun
-    deadline // timestamp - no esta definido aun
-  })
+    deadline, // timestamp - no esta definido aun
+  });
 }
 
 main();
