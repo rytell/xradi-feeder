@@ -22,9 +22,11 @@ export const userLiquidity = gql`
           id
           token0 {
             name
+            id
           }
           token1 {
             name
+            id
           }
         }
         liquidityTokenBalance
@@ -70,6 +72,7 @@ async function swapExactTokensForTokens({
   to, // receiver address
   deadline, // timestamp
 }) {
+  console.log(": BEGAN SWAPPING");
   const swapExactTokensForTokensTx = router.methods.swapExactTokensForTokens(
     amountInput,
     amountOutputMin,
@@ -164,6 +167,7 @@ async function retryLetRouterSpendOurTokens({
   privateKey,
 }) {
   try {
+    console.log("BEGINNING APPROVE: ", tokenContract.options.address);
     await letRouterSpendOurTokens({
       tokenContract,
       router,
@@ -172,7 +176,9 @@ async function retryLetRouterSpendOurTokens({
       address,
       privateKey,
     });
+    console.log("FINISHED: ", tokenContract.options.address);
   } catch (error) {
+    console.log("RETRIED APPROVE");
     await retryLetRouterSpendOurTokens({
       tokenContract,
       router,
@@ -206,6 +212,8 @@ async function approvePathContracts({
       return {};
     })
   );
+  console.log("FINISHED APPROVING PATH");
+  return;
 }
 
 async function main() {
@@ -234,13 +242,9 @@ async function main() {
     ROUTER_ADDRESS[process.env.NETWORK]
   );
 
-  const amountInput = BigNumber.from(1);
-  const amountOutputMin = BigNumber.from(0);
-  const deadline = getTransactionDeadline();
-  const to = RADI_STAKING_POOL[process.env.NETWORK];
   const path = [
-    "0xA84b0D75cF0cb4515abcC7737544075C02A851Bd",
-    "0x600615234c0a427834A4344D10fEaCA374B2dfCB",
+    "0xA84b0D75cF0cb4515abcC7737544075C02A851Bd", // RADI
+    "0x600615234c0a427834A4344D10fEaCA374B2dfCB", // RIORE
   ];
 
   const tokenContracts = path.map(
@@ -256,7 +260,13 @@ async function main() {
     router,
   });
 
-  // TODO trigger swap for testing
+  console.log(": FINISHED APPROVING");
+
+  const amountInput = BigNumber.from("1000000000000000000");
+  const amountOutputMin = BigNumber.from("1");
+  const deadline = getTransactionDeadline();
+  const to = RADI_STAKING_POOL[process.env.NETWORK];
+
   // swapExactAVAXForTokens
   // swapExactTokensForTokens
   await swapExactTokensForTokens({
