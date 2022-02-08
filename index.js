@@ -1,44 +1,15 @@
 import { createRequire } from "module"; // Bring in the ability to create the 'require' method
 const require = createRequire(import.meta.url); // construct the require method
-
-import { GraphQLClient } from "graphql-request";
 import Web3 from "web3";
-
-import { gql } from "graphql-request";
 import dotenv from "dotenv";
 import { BigNumber } from "ethers";
 import { MaxUint256 } from "@ethersproject/constants";
 import utils from "./utils.mjs";
-import { ERC20_ABI } from "./constants.js";
+//import { ERC20_ABI } from "./constants.js";
+import { pairsToExchange } from "./graphql/tokensToTrade.js";
+
 const { getTransactionDeadline } = utils;
 dotenv.config();
-
-// TODO add variable
-export const userLiquidity = gql`
-  {
-    user(id: "0xcded56aff69d1d2d69cbfdd86c03df743fc1e95f") {
-      liquidityPositions {
-        pair {
-          id
-          token0 {
-            name
-            id
-          }
-          token1 {
-            name
-            id
-          }
-        }
-        liquidityTokenBalance
-      }
-    }
-  }
-`;
-
-const endpoint =
-  "https://api.thegraph.com/subgraphs/name/pedroomedicina/rytellfuji";
-
-export const client = new GraphQLClient(endpoint);
 
 const RPC_API = {
   AVALANCHE: "https://api.avax.network/ext/bc/C/rpc",
@@ -217,6 +188,9 @@ async function approvePathContracts({
 }
 
 async function main() {
+
+  const pairListToExchange = pairsToExchange();
+  
   const {
     abi: RouterABI,
   } = require("@rytell/exchange-contracts/artifacts/contracts/periphery/RytellRouter.sol/RytellRouter.json");
